@@ -32,7 +32,7 @@ jobs:
         make build_arm64
         echo "Windows build"
         make build_windows
-        mv k8snodemoni* tools
+        mv k8snodemon* tools
         tar cfz tools.tar.gz tools
 
     - name: Create Release
