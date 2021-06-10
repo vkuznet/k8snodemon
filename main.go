@@ -16,7 +16,6 @@ import (
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
-	"github.com/gophercloud/gophercloud/pagination"
 
 	//     "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -169,40 +168,57 @@ func run(endpoint, token, appid, username, password, project, method string, env
 	if err != nil {
 		panic(err)
 	}
-	for _, server := range allServers {
-		fmt.Printf("%+v\n", server)
+	for _, s := range allServers {
+		if verbose {
+			log.Printf("%+v\n", s)
+		}
+		// reboot specific server
+		if strings.ToLower(s.Status) != "active" {
+			log.Printf("found %s (%s) with status %s, will apply %s reboot", s.Name, s.ID, s.Status, method)
+			var res servers.ActionResult
+			if method == "soft" {
+				rebootMethod := servers.RebootOpts{Type: servers.SoftReboot}
+				res = servers.Reboot(client, s.ID, rebootMethod)
+			} else {
+				rebootMethod := servers.RebootOpts{Type: servers.HardReboot}
+				res = servers.Reboot(client, s.ID, rebootMethod)
+			}
+			log.Println("results", res)
+		}
 	}
 
-	fmt.Println("### old way to list servers")
+	/*
+		log.Println("### old way to list servers")
 
-	// list existing servers
-	pager := servers.List(client, servers.ListOpts{})
-	pager.EachPage(func(page pagination.Page) (bool, error) {
-		serverList, err := servers.ExtractServers(page)
-		if err != nil {
-			log.Println("extract servers: ", err)
-			return false, err
-		}
-		for _, s := range serverList {
-			if verbose {
-				fmt.Println(s.ID, s.Name, s.Status)
+		// list existing servers
+		pager := servers.List(client, servers.ListOpts{})
+		pager.EachPage(func(page pagination.Page) (bool, error) {
+			serverList, err := servers.ExtractServers(page)
+			if err != nil {
+				log.Println("extract servers: ", err)
+				return false, err
 			}
-			// reboot specific server
-			if strings.ToLower(s.Status) != "active" {
-				log.Printf("found %s (%s) with status %s, will apply %s reboot", s.Name, s.ID, s.Status, method)
-				var res servers.ActionResult
-				if method == "soft" {
-					rebootMethod := servers.RebootOpts{Type: servers.SoftReboot}
-					res = servers.Reboot(client, s.ID, rebootMethod)
-				} else {
-					rebootMethod := servers.RebootOpts{Type: servers.HardReboot}
-					res = servers.Reboot(client, s.ID, rebootMethod)
+			for _, s := range serverList {
+				if verbose {
+					log.Println(s.ID, s.Name, s.Status)
 				}
-				log.Println("results", res)
+				// reboot specific server
+				if strings.ToLower(s.Status) != "active" {
+					log.Printf("found %s (%s) with status %s, will apply %s reboot", s.Name, s.ID, s.Status, method)
+					var res servers.ActionResult
+					if method == "soft" {
+						rebootMethod := servers.RebootOpts{Type: servers.SoftReboot}
+						res = servers.Reboot(client, s.ID, rebootMethod)
+					} else {
+						rebootMethod := servers.RebootOpts{Type: servers.HardReboot}
+						res = servers.Reboot(client, s.ID, rebootMethod)
+					}
+					log.Println("results", res)
+				}
 			}
-		}
-		return true, nil
-	})
+			return true, nil
+		})
+	*/
 }
 
 // helper function to get k8s nodes
@@ -219,11 +235,11 @@ func k8snodes(verbose bool) []string {
 		panic(err.Error())
 	}
 	// get pods
-	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
-	if err != nil {
-		panic(err.Error())
-	}
-	fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
+	//     pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
+	//     if err != nil {
+	//         panic(err.Error())
+	//     }
+	//     log.Printf("There are %d pods in the cluster\n", len(pods.Items))
 	// get nodes
 	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
@@ -231,15 +247,14 @@ func k8snodes(verbose bool) []string {
 	}
 	for _, n := range nodes.Items {
 		data, err := json.MarshalIndent(n, "", "  ")
-		fmt.Printf("### node: %+v", n)
+		//         log.Printf("node: %+v", n)
 		if err == nil {
 			if verbose {
-				fmt.Println(string(data))
+				log.Println(string(data))
 			}
 		}
 		out = append(out, n.Name)
 	}
-	//     fmt.Printf("There are %d pods in the cluster\n", len(nodes.Items))
 	return out
 }
 
@@ -253,4 +268,46 @@ func k8srun(endpoint, token, appid, username, password, project, method string, 
 	// list existing servers
 	nodes := k8snodes(verbose)
 	log.Println("nodes", nodes)
+
+	// list existing opentstack servers
+	allPages, err := servers.List(client, nil).AllPages()
+	if err != nil {
+		log.Fatal(err)
+	}
+	allServers, err := servers.ExtractServers(allPages)
+	if err != nil {
+		log.Fatal(err)
+	}
+	for _, s := range allServers {
+		if inList(s.Name, nodes) {
+			if verbose {
+				log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
+			}
+			//             if verbose {
+			//                 log.Printf("%+v\n", s)
+			//             }
+			if strings.ToLower(s.Status) != "active" {
+				log.Printf("found %s (%s) with status %s, will apply %s reboot", s.Name, s.ID, s.Status, method)
+				var res servers.ActionResult
+				if method == "soft" {
+					rebootMethod := servers.RebootOpts{Type: servers.SoftReboot}
+					res = servers.Reboot(client, s.ID, rebootMethod)
+				} else {
+					rebootMethod := servers.RebootOpts{Type: servers.HardReboot}
+					res = servers.Reboot(client, s.ID, rebootMethod)
+				}
+				log.Println("result", res)
+			}
+		}
+	}
+}
+
+// helper function to check if given value in a list
+func inList(s string, list []string) bool {
+	for _, v := range list {
+		if s == v {
+			return true
+		}
+	}
+	return false
 }
