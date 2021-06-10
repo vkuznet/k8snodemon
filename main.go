@@ -54,6 +54,8 @@ func main() {
 			log.Fatal("unable to read credentials")
 		}
 	}
+	log.SetFlags(0)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	if k8s {
 		k8srun(endpoint, token, appid, name, password, project, method, env, verbose)
 	} else {
@@ -279,10 +281,10 @@ func k8srun(endpoint, token, appid, username, password, project, method string, 
 		log.Fatal(err)
 	}
 	for _, s := range allServers {
+		if verbose {
+			log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
+		}
 		if inList(s.Name, nodes) {
-			if verbose {
-				log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
-			}
 			//             if verbose {
 			//                 log.Printf("%+v\n", s)
 			//             }
