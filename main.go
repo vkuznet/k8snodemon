@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -205,7 +206,7 @@ func run(endpoint, token, appid, username, password, project, method string, env
 }
 
 // helper function to get k8s nodes
-func k8snodes() []string {
+func k8snodes(verbose bool) []string {
 	var out []string
 	// creates the in-cluster config
 	config, err := rest.InClusterConfig()
@@ -229,7 +230,14 @@ func k8snodes() []string {
 		panic(err.Error())
 	}
 	for _, n := range nodes.Items {
-		fmt.Println("node", n)
+		data, err := json.MarshalIndent(n, "", "  ")
+		fmt.Printf("### node: %+v", n)
+		if err == nil {
+			if verbose {
+				fmt.Println(string(data))
+			}
+		}
+		out = append(out, n.Name)
 	}
 	//     fmt.Printf("There are %d pods in the cluster\n", len(nodes.Items))
 	return out
@@ -243,6 +251,6 @@ func k8srun(endpoint, token, appid, username, password, project, method string, 
 	}
 	log.Println("openstack client", client)
 	// list existing servers
-	nodes := k8snodes()
+	nodes := k8snodes(verbose)
 	log.Println("nodes", nodes)
 }
