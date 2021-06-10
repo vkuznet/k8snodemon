@@ -2,23 +2,34 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"flag"
 	"fmt"
-	"golang.org/x/term"
 	"log"
 	"os"
 	"strings"
 	"syscall"
 
+	"golang.org/x/term"
+
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack"
 	"github.com/gophercloud/gophercloud/openstack/compute/v2/servers"
 	"github.com/gophercloud/gophercloud/pagination"
+
+	//     "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 )
 
 func main() {
 	var verbose bool
 	flag.BoolVar(&verbose, "verbose", false, "verbose output")
+	var env bool
+	flag.BoolVar(&env, "env", false, "use openstack environment for authentication")
+	var k8s bool
+	flag.BoolVar(&k8s, "k8s", false, "use k8s APIs to get node information")
 	var token string
 	flag.StringVar(&token, "token", "", "token")
 	var appid string
@@ -36,14 +47,18 @@ func main() {
 	flag.Parse()
 	log.SetFlags(0)
 	log.SetFlags(log.Lshortfile)
-	if name == "" && token == "" {
+	if name == "" && token == "" && env == false {
 		var err error
 		name, password, err = credentials()
 		if err != nil {
 			log.Fatal("unable to read credentials")
 		}
 	}
-	run(endpoint, token, appid, name, password, project, method, verbose)
+	if k8s {
+		k8srun(endpoint, token, appid, name, password, project, method, env, verbose)
+	} else {
+		run(endpoint, token, appid, name, password, project, method, env, verbose)
+	}
 }
 
 // helper function to get user credentials from stdin
@@ -68,7 +83,7 @@ func credentials() (string, string, error) {
 }
 
 // helper function to run our workflow on openstack
-func run(endpoint, token, appid, username, password, project, method string, verbose bool) {
+func getClient(endpoint, token, appid, username, password, project, method string, env, verbose bool) (*gophercloud.ServiceClient, error) {
 
 	var opts gophercloud.AuthOptions
 	var err error
@@ -78,12 +93,33 @@ func run(endpoint, token, appid, username, password, project, method string, ver
 		DomainID:    "default",
 	}
 	if appid != "" {
+		// another way to make authentication via clientconfig
+		// it requires to import
+		// "github.com/gophercloud/utils/openstack/clientconfig"
+		/*
+			copts := &clientconfig.ClientOpts{
+				AuthInfo: &clientconfig.AuthInfo{
+					AuthURL:                     endpoint,
+					ApplicationCredentialID:     appid,
+					ApplicationCredentialSecret: password,
+					UserDomainID:                "default",
+					ProjectDomainID:             "default",
+				},
+			}
+			ao, err := clientconfig.AuthOptions(copts)
+			if err != nil {
+				log.Fatal(err)
+			}
+			log.Printf("auth options: %+v", *ao)
+			log.Printf("scope options: %+v", *ao.Scope)
+		*/
 		opts = gophercloud.AuthOptions{
 			IdentityEndpoint:            endpoint,
 			ApplicationCredentialID:     appid,
-			ApplicationCredentialName:   username,
 			ApplicationCredentialSecret: password,
-			Scope:                       scope,
+			TenantName:                  project,
+			DomainID:                    "default",
+			Scope:                       &gophercloud.AuthScope{},
 		}
 		log.Printf("auth options: %+v\n", opts)
 	} else if token != "" {
@@ -92,6 +128,12 @@ func run(endpoint, token, appid, username, password, project, method string, ver
 			TokenID:          token,
 			Scope:            scope,
 		}
+	} else if env {
+		ao, err := openstack.AuthOptionsFromEnv()
+		if err != nil {
+			log.Fatal(err)
+		}
+		opts = ao
 	} else {
 		opts = gophercloud.AuthOptions{
 			IdentityEndpoint: endpoint,
@@ -108,9 +150,29 @@ func run(endpoint, token, appid, username, password, project, method string, ver
 	client, err := openstack.NewComputeV2(provider, gophercloud.EndpointOpts{
 		Region: os.Getenv("OS_REGION_NAME"),
 	})
+	return client, err
+}
+
+// helper function to run our workflow on openstack
+func run(endpoint, token, appid, username, password, project, method string, env, verbose bool) {
+	client, err := getClient(endpoint, token, appid, username, password, project, method, env, verbose)
 	if err != nil {
 		log.Fatal("compute client error", err)
 	}
+	// list existing servers
+	allPages, err := servers.List(client, nil).AllPages()
+	if err != nil {
+		panic(err)
+	}
+	allServers, err := servers.ExtractServers(allPages)
+	if err != nil {
+		panic(err)
+	}
+	for _, server := range allServers {
+		fmt.Printf("%+v\n", server)
+	}
+
+	fmt.Println("### old way to list servers")
 
 	// list existing servers
 	pager := servers.List(client, servers.ListOpts{})
@@ -140,4 +202,38 @@ func run(endpoint, token, appid, username, password, project, method string, ver
 		}
 		return true, nil
 	})
+}
+
+// helper function to get k8s nodes
+func k8snodes() []string {
+	var out []string
+	// creates the in-cluster config
+	config, err := rest.InClusterConfig()
+	if err != nil {
+		panic(err.Error())
+	}
+	// creates the clientset
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+	// get pods
+	pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
+	return out
+}
+
+// k8srun helper function to manage nodes within k8s
+func k8srun(endpoint, token, appid, username, password, project, method string, env, verbose bool) {
+	client, err := getClient(endpoint, token, appid, username, password, project, method, env, verbose)
+	if err != nil {
+		log.Fatal("compute client error", err)
+	}
+	log.Println("openstack client", client)
+	// list existing servers
+	nodes := k8snodes()
+	log.Println("nodes", nodes)
 }

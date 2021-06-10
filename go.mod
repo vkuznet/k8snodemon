@@ -7,5 +7,7 @@ require (
 	github.com/mitchellh/mapstructure v1.4.1 // indirect
 	github.com/racker/perigee v0.1.0 // indirect
 	github.com/rackspace/gophercloud v1.0.0 // indirect
-	golang.org/x/term v0.0.0-20201126162022-7de9c90e9dd1
+	golang.org/x/term v0.0.0-20210220032956-6a3ed077a48d
+	k8s.io/apimachinery v0.21.1 // indirect
+	k8s.io/client-go v0.21.1 // indirect
 )
