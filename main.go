@@ -1,5 +1,11 @@
 package main
 
+// k8snodemon - k8s/openstack node mangement tool
+//
+// Copyright (c) 2021 - Valentin Kuznetsov <vkuznet AT gmail dot com>
+//
+//
+
 import (
 	"bufio"
 	"context"
