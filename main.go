@@ -129,7 +129,9 @@ func getClient(endpoint, token, appid, username, password, project, method strin
 			DomainID:                    "default",
 			Scope:                       &gophercloud.AuthScope{},
 		}
-		log.Printf("auth options: %+v\n", opts)
+		if verbose {
+			log.Printf("auth options: %+v\n", opts)
+		}
 	} else if token != "" {
 		opts = gophercloud.AuthOptions{
 			IdentityEndpoint: endpoint,
