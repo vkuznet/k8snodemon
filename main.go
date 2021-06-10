@@ -170,11 +170,11 @@ func run(endpoint, token, appid, username, password, project, method string, env
 	// list existing servers
 	allPages, err := servers.List(client, nil).AllPages()
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	allServers, err := servers.ExtractServers(allPages)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	for _, s := range allServers {
 		if verbose {
@@ -287,13 +287,14 @@ func k8srun(endpoint, token, appid, username, password, project, method string, 
 		log.Fatal(err)
 	}
 	for _, s := range allServers {
-		if verbose {
-			log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
-		}
+		//         if verbose {
+		//             log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
+		//         }
 		if inList(s.Name, nodes) {
-			//             if verbose {
-			//                 log.Printf("%+v\n", s)
-			//             }
+			log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
+			if verbose {
+				log.Printf("%+v\n", s)
+			}
 			if strings.ToLower(s.Status) != "active" {
 				log.Printf("found %s (%s) with status %s, will apply %s reboot", s.Name, s.ID, s.Status, method)
 				var res servers.ActionResult
