@@ -223,6 +223,15 @@ func k8snodes() []string {
 		panic(err.Error())
 	}
 	fmt.Printf("There are %d pods in the cluster\n", len(pods.Items))
+	// get nodes
+	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		panic(err.Error())
+	}
+	for _, n := range nodes.Items {
+		fmt.Println("node", n)
+	}
+	//     fmt.Printf("There are %d pods in the cluster\n", len(nodes.Items))
 	return out
 }
 
