@@ -231,29 +231,30 @@ func run(endpoint, token, appid, username, password, project, method string, env
 	*/
 }
 
+// NodeInfo provides information about k8s nodes
+type NodeInfo struct {
+	Name   string // k8d node name (github.com/kubernetes/client-go)
+	ID     string // k8s node ID (github.com/kubernetes/client-go)
+	Status string // status of the node (github.com/kubernetes/apimachinery)
+}
+
 // helper function to get k8s nodes
-func k8snodes(verbose bool) []string {
-	var out []string
+func k8snodes(verbose bool) []NodeInfo {
+	var out []NodeInfo
 	// creates the in-cluster config
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		panic(err.Error())
+		log.Fatal(err.Error())
 	}
 	// creates the clientset
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		panic(err.Error())
+		log.Fatal(err.Error())
 	}
-	// get pods
-	//     pods, err := clientset.CoreV1().Pods("").List(context.TODO(), metav1.ListOptions{})
-	//     if err != nil {
-	//         panic(err.Error())
-	//     }
-	//     log.Printf("There are %d pods in the cluster\n", len(pods.Items))
 	// get nodes
 	nodes, err := clientset.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		panic(err.Error())
+		log.Fatal(err.Error())
 	}
 	for _, n := range nodes.Items {
 		data, err := json.MarshalIndent(n, "", "  ")
@@ -263,7 +264,16 @@ func k8snodes(verbose bool) []string {
 				log.Println(string(data))
 			}
 		}
-		out = append(out, n.Name)
+		// lookup status of the node within status conditions data structure
+		var status string
+		for _, c := range n.Status.Conditions {
+			if c.Type == "Ready" {
+				status = fmt.Sprintf("%v", c.Status)
+				break
+			}
+		}
+		ninfo := NodeInfo{Name: n.Name, ID: n.Spec.ProviderID, Status: status}
+		out = append(out, ninfo)
 	}
 	return out
 }
@@ -278,39 +288,56 @@ func k8srun(endpoint, token, appid, username, password, project, method string, 
 	// list existing servers
 	nodes := k8snodes(verbose)
 	log.Println("nodes", nodes)
-
-	// list existing opentstack servers
-	allPages, err := servers.List(client, nil).AllPages()
-	if err != nil {
-		log.Fatal(err)
-	}
-	allServers, err := servers.ExtractServers(allPages)
-	if err != nil {
-		log.Fatal(err)
-	}
-	for _, s := range allServers {
-		//         if verbose {
-		//             log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
-		//         }
-		if inList(s.Name, nodes) {
-			log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
-			if verbose {
-				log.Printf("%+v\n", s)
+	for _, n := range nodes {
+		log.Printf("ID=%s name=%s status=%v\n", n.ID, n.Name, n.Status)
+		if n.Status != "True" { // node is not ready
+			log.Printf("found %s (%s) with status %s, will apply %s reboot", n.Name, n.ID, n.Status, method)
+			var res servers.ActionResult
+			if method == "soft" {
+				rebootMethod := servers.RebootOpts{Type: servers.SoftReboot}
+				res = servers.Reboot(client, n.ID, rebootMethod)
+			} else {
+				rebootMethod := servers.RebootOpts{Type: servers.HardReboot}
+				res = servers.Reboot(client, n.ID, rebootMethod)
 			}
-			if strings.ToLower(s.Status) != "active" {
-				log.Printf("found %s (%s) with status %s, will apply %s reboot", s.Name, s.ID, s.Status, method)
-				var res servers.ActionResult
-				if method == "soft" {
-					rebootMethod := servers.RebootOpts{Type: servers.SoftReboot}
-					res = servers.Reboot(client, s.ID, rebootMethod)
-				} else {
-					rebootMethod := servers.RebootOpts{Type: servers.HardReboot}
-					res = servers.Reboot(client, s.ID, rebootMethod)
-				}
-				log.Println("result", res)
-			}
+			log.Println("result", res)
 		}
 	}
+	/*
+
+		// list existing opentstack servers
+		allPages, err := servers.List(client, nil).AllPages()
+		if err != nil {
+			log.Fatal(err)
+		}
+		allServers, err := servers.ExtractServers(allPages)
+		if err != nil {
+			log.Fatal(err)
+		}
+		for _, s := range allServers {
+			//         if verbose {
+			//             log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
+			//         }
+			if inList(s.Name, nodes) {
+				log.Printf("ID=%s name=%s status=%v\n", s.ID, s.Name, s.Status)
+				if verbose {
+					log.Printf("%+v\n", s)
+				}
+				if strings.ToLower(s.Status) != "active" {
+					log.Printf("found %s (%s) with status %s, will apply %s reboot", s.Name, s.ID, s.Status, method)
+					var res servers.ActionResult
+					if method == "soft" {
+						rebootMethod := servers.RebootOpts{Type: servers.SoftReboot}
+						res = servers.Reboot(client, s.ID, rebootMethod)
+					} else {
+						rebootMethod := servers.RebootOpts{Type: servers.HardReboot}
+						res = servers.Reboot(client, s.ID, rebootMethod)
+					}
+					log.Println("result", res)
+				}
+			}
+		}
+	*/
 }
 
 // helper function to check if given value in a list
