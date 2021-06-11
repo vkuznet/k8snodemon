@@ -272,8 +272,8 @@ func k8snodes(verbose bool) []NodeInfo {
 				break
 			}
 		}
-		name := strings.Replace(n.Name, "openstack:///", "", -1)
-		ninfo := NodeInfo{Name: name, ID: n.Spec.ProviderID, Status: status}
+		nid := strings.Replace(n.Spec.ProviderID, "openstack:///", "", -1)
+		ninfo := NodeInfo{Name: n.Name, ID: nid, Status: status}
 		out = append(out, ninfo)
 	}
 	return out
